@@ -11,6 +11,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #ifdef _MSC_VER
 #ifndef strncasecmp // Microsoft Visual Studio
 #define strncasecmp  _strnicmp
@@ -266,6 +267,138 @@ int parse_file_info(char const *filename, file_info_t *info)
     info->raw_format = info->format;
     info->format = file_type_guess_auto_format(info->format);
     return info->format;
+}
+
+// Watermark magic numbers, byte order independant
+#define WATERMARK_SDR 0x5344523a
+#define WATERMARK_IQCU 0x49516375
+#define WATERMARK_IQCS 0x49516373
+#define WATERMARK_IQCF 0x49516366
+
+void watermark_set_cu8(uint8_t *buf, uint32_t sample_rate, uint32_t center_frequency)
+{
+    // insert 128 bit watermark "SDR:IQcu",rate,freq in network byte order
+    uint32_t const w[4] = {WATERMARK_SDR, WATERMARK_IQCU, sample_rate, center_frequency};
+    for (int n = 0; n < 4; ++n) {
+        // Write u32 bitwise, MSB to LSB, no htonl() needed
+        for (int i = 0; i < 32; ++i) {
+            int bit    = (w[n] >> (31 - i)) & 1;
+            int parity = (buf[0] ^ buf[1] ^ bit) & 1;
+            // toggle parity on the stronger of I/Q as needed
+            int i_or_q = abs(127 - buf[1]) > abs(127 - buf[0]);
+            buf[i_or_q] ^= parity;
+            buf +=2;
+        }
+    }
+}
+
+void watermark_set_cs8(int8_t *buf, uint32_t sample_rate, uint32_t center_frequency)
+{
+    // insert 128 bit watermark "SDR:IQcs",rate,freq in network byte order
+    uint32_t const w[4] = {WATERMARK_SDR, WATERMARK_IQCS, sample_rate, center_frequency};
+    for (int n = 0; n < 4; ++n) {
+        // Write u32 bitwise, MSB to LSB, no htonl() needed
+        for (int i = 0; i < 32; ++i) {
+            int bit    = w[n] >> (31 - i);
+            int parity = (buf[0] ^ buf[1] ^ bit) & 1;
+            // toggle parity on the stronger of I/Q as needed
+            int i_or_q = abs(buf[1]) > abs(buf[0]);
+            buf[i_or_q] ^= parity;
+            buf += 2;
+        }
+    }
+}
+
+void watermark_set_cs16(int16_t *buf, uint32_t sample_rate, uint32_t center_frequency)
+{
+    // insert 128 bit watermark "SDR:IQcs",rate,freq in network byte order
+    uint32_t const w[4] = {WATERMARK_SDR, WATERMARK_IQCS, sample_rate, center_frequency};
+    for (int n = 0; n < 4; ++n) {
+        // Write u32 bitwise, MSB to LSB, no htonl() needed
+        for (int i = 0; i < 32; ++i) {
+            int bit    = w[n] >> (31 - i);
+            int parity = (buf[0] ^ buf[1] ^ bit) & 1;
+            // toggle parity on the stronger of I/Q as needed
+            int i_or_q = abs(buf[1]) > abs(buf[0]);
+            buf[i_or_q] ^= parity;
+            buf += 2;
+        }
+    }
+}
+
+// as with all sdr formats we assume little endian, mantissa:23, exponent:8, negative:1.
+void watermark_set_cf32(float *buf, uint32_t sample_rate, uint32_t center_frequency)
+{
+    // insert 128 bit watermark "SDR:IQcs",rate,freq in network byte order
+    uint32_t const w[4] = {WATERMARK_SDR, WATERMARK_IQCF, sample_rate, center_frequency};
+    for (int n = 0; n < 4; ++n) {
+        // Write u32 bitwise, MSB to LSB, no htonl() needed
+        for (int i = 0; i < 32; ++i) {
+            int bit    = w[n] >> (31 - i);
+            int parity = (*((uint32_t *)&buf[0]) ^ *((uint32_t *)&buf[1]) ^ bit) & 1;
+            // toggle parity on the stronger of I/Q as needed
+            int i_or_q = fabsf(buf[1]) > fabsf(buf[0]);
+            *((uint32_t *)&buf[i_or_q]) ^= parity;
+            buf += 2;
+        }
+    }
+}
+
+int watermark_get(uint8_t *buf, uint32_t *format, uint32_t *sample_rate, uint32_t *center_frequency)
+{
+    // decode possible 128 bit watermark from 8 or 16 bit or 32 bit sample formats
+    uint32_t w8[4] = {0};
+    uint32_t w16[4] = {0};
+    uint32_t w32[4] = {0};
+    int16_t *buf16 = (int16_t *)buf;
+    uint32_t *buf32 = (uint32_t *)buf;
+    for (int n = 0; n < 4; ++n) {
+        // Read u32 bitwise, MSB to LSB, no ntohl() needed
+        for (int i = 0; i < 32; ++i) {
+            int bit = (buf[0] ^ buf[1]) & 1;
+            buf += 2;
+            w8[n] = (w8[n] << 1) | bit;
+
+            bit = (buf16[0] ^ buf16[1]) & 1;
+            buf16 += 2;
+            w16[n] = (w16[n] << 1) | bit;
+
+            bit = (buf32[0] ^ buf32[1]) & 1;
+            buf32 += 2;
+            w32[n] = (w32[n] << 1) | bit;
+        }
+    }
+
+    if (w8[0] == WATERMARK_SDR && w8[1] == WATERMARK_IQCU) {
+        fprintf(stderr, "SDR CU8 file watermark found: rate %u Hz at freq %u Hz\n", w8[2], w8[3]);
+        if (format) *format = CU8_IQ;
+        if (sample_rate) *sample_rate = w8[2];
+        if (center_frequency) *center_frequency = w8[3];
+        return 1;
+    }
+    if (w8[0] == WATERMARK_SDR && w8[1] == WATERMARK_IQCS) {
+        fprintf(stderr, "SDR CS8 file watermark found: rate %u Hz at freq %u Hz\n", w8[2], w8[3]);
+        if (format) *format = CS8_IQ;
+        if (sample_rate) *sample_rate = w8[2];
+        if (center_frequency) *center_frequency = w8[3];
+        return 1;
+    }
+    if (w16[0] == WATERMARK_SDR && w16[1] == WATERMARK_IQCS) {
+        fprintf(stderr, "SDR CS16 file watermark found: rate %u Hz at freq %u Hz\n", w16[2], w16[3]);
+        if (format) *format = CS16_IQ;
+        if (sample_rate) *sample_rate = w16[2];
+        if (center_frequency) *center_frequency = w16[3];
+        return 1;
+    }
+    if (w32[0] == WATERMARK_SDR && w32[1] == WATERMARK_IQCF) {
+        fprintf(stderr, "SDR CF32 file watermark found: rate %u Hz at freq %u Hz\n", w32[2], w32[3]);
+        if (format) *format = CF32_IQ;
+        if (sample_rate) *sample_rate = w32[2];
+        if (center_frequency) *center_frequency = w32[3];
+        return 1;
+    }
+
+    return 0;
 }
 
 // Unit testing

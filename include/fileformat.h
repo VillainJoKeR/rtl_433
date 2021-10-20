@@ -90,4 +90,43 @@ void check_write_file_info(file_info_t *info);
 
 char const *file_info_string(file_info_t *info);
 
+/// Insert a 128 bit watermark of "SDR:IQcu",rate,freq into the first 128 samples (256 bytes).
+///
+/// @param[in,out] buf the IQ sample data, needs to be at least 256 bytes length
+/// @param sample_rate the sample rate to encode in the watermark
+/// @param center_frequency the center frequency to encode in the watermark
+void watermark_set_cu8(uint8_t *buf, uint32_t sample_rate, uint32_t center_frequency);
+
+/// Insert a 128 bit watermark of "SDR:IQcs",rate,freq into the first 128 samples (256 bytes).
+///
+/// @param[in,out] buf the IQ sample data, needs to be at least 256 bytes length
+/// @param sample_rate the sample rate to encode in the watermark
+/// @param center_frequency the center frequency to encode in the watermark
+void watermark_set_cs8(int8_t *buf, uint32_t sample_rate, uint32_t center_frequency);
+
+/// Insert a 128 bit watermark of "SDR:IQcs",rate,freq into the first 128 samples (512 bytes).
+///
+/// @param[in,out] buf the IQ sample data, needs to be at least 512 bytes length
+/// @param sample_rate the sample rate to encode in the watermark
+/// @param center_frequency the center frequency to encode in the watermark
+void watermark_set_cs16(int16_t *buf, uint32_t sample_rate, uint32_t center_frequency);
+
+/// Insert a 128 bit watermark of "SDR:IQcs",rate,freq into the first 128 samples (1024 bytes).
+///
+/// @param[in,out] buf the IQ sample data, needs to be at least 1024 bytes length
+/// @param sample_rate the sample rate to encode in the watermark
+/// @param center_frequency the center frequency to encode in the watermark
+void watermark_set_cf32(float *buf, uint32_t sample_rate, uint32_t center_frequency);
+
+/// Detect a watermark from cu8, cs8, cs16, cf32 files.
+///
+/// @param buf the IQ sample data, needs to be at least 1024 bytes length
+/// @param[out] format set to the detected format if a watermark is found
+/// @param[out] sample_rate set to the detected sample rate if a watermark is found
+/// @param[out] center_frequency set to the detected center frequency if a watermark is found
+/// @return 1 if a watermark was found, 0 otherwise
+/// @retval 0 no watermark was found
+/// @retval 1 a watermark was found
+int watermark_get(uint8_t *buf, uint32_t *format, uint32_t *sample_rate, uint32_t *center_frequency);
+
 #endif /* INCLUDE_FILEFORMAT_H_ */
