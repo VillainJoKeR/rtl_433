@@ -7800,7 +7800,7 @@ int mg_check_digest_auth(struct mg_str method, struct mg_str uri,
                          struct mg_str response, struct mg_str qop,
                          struct mg_str nc, struct mg_str nonce,
                          struct mg_str auth_domain, FILE *fp) {
-  char buf[128], f_user[sizeof(buf)], f_ha1[sizeof(buf)], f_domain[sizeof(buf)];
+  char buf[128], f_user[10], f_ha1[10], f_domain[10];
   char exp_resp[33];
 
   /*
